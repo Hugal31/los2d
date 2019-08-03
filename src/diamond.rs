@@ -27,28 +27,27 @@ impl DiamondLos {
         }
     }
 
-    fn propagate_from<M: MapProvider>(&mut self, offset: Coord, map: &M) {
-        if !Self::is_in_bounds(self.origin + offset, map) {
-            return;
-        }
-
-        if !self.get_data(offset).ignore {
+    fn propagate_from<M: MapProvider>(&mut self, offset: (i32, i32), map: &mut M) {
+        if Self::is_in_bounds(self.origin + offset, map)
+            && self.get_data(offset).visited
+            && !self.get_data(offset).ignore
+        {
             if offset.0 >= 0 {
-                self.apply_ray(offset + Coord(1, 0), offset, map);
+                self.apply_ray((offset.0 + 1, offset.1), offset, map);
             }
             if offset.1 >= 0 {
-                self.apply_ray(offset + Coord(0, 1), offset, map);
+                self.apply_ray((offset.0, offset.1 + 1), offset, map);
             }
             if offset.0 <= 0 {
-                self.apply_ray(offset + Coord(-1, 0), offset, map);
+                self.apply_ray((offset.0 - 1, offset.1), offset, map);
             }
             if offset.1 <= 0 {
-                self.apply_ray(offset + Coord(0, -1), offset, map);
+                self.apply_ray((offset.0, offset.1 - 1), offset, map);
             }
         }
     }
 
-    fn apply_ray<M: MapProvider>(&mut self, offset: Coord, input: Coord, map: &M) {
+    fn apply_ray<M: MapProvider>(&mut self, offset: (i32, i32), input: (i32, i32), map: &mut M) {
         if !Self::is_in_bounds(self.origin + offset, map) {
             return;
         }
@@ -89,19 +88,20 @@ impl DiamondLos {
         if !self_data.ignore && map.is_blocking(origin + offset) {
             self_data.obs = (offset.0.abs(), offset.1.abs());
             self_data.err = self_data.obs;
+            self_data.light = true;
         }
 
         self_data.visited = true;
     }
 
-    fn get_data(&self, offset: Coord) -> &CellData {
+    fn get_data(&self, offset: (i32, i32)) -> &CellData {
         &self.cache[Coord(
             offset.0 + self.max_view_range as i32,
             offset.1 + self.max_view_range as i32,
         )]
     }
 
-    fn get_data_mut(&mut self, offset: Coord) -> &mut CellData {
+    fn get_data_mut(&mut self, offset: (i32, i32)) -> &mut CellData {
         &mut self.cache[Coord(
             offset.0 + self.max_view_range as i32,
             offset.1 + self.max_view_range as i32,
@@ -139,7 +139,7 @@ impl LosAlgorithm for DiamondLos {
 
         map.mark_as_visible(origin);
         {
-            let zero = Coord(0, 0);
+            let zero = (0, 0);
             let origin_data = self.get_data_mut(zero);
             origin_data.visited = true;
             self.propagate_from(zero, map);
@@ -151,22 +151,22 @@ impl LosAlgorithm for DiamondLos {
 
             // Turn clockwise starting from the east
             while offset_x != 0 {
-                self.propagate_from(Coord(offset_x, offset_y), map);
+                self.propagate_from((offset_x, offset_y), map);
                 offset_x -= 1;
                 offset_y += 1;
             }
             while offset_y != 0 {
-                self.propagate_from(Coord(offset_x, offset_y), map);
+                self.propagate_from((offset_x, offset_y), map);
                 offset_x -= 1;
                 offset_y -= 1;
             }
             while offset_x != 0 {
-                self.propagate_from(Coord(offset_x, offset_y), map);
+                self.propagate_from((offset_x, offset_y), map);
                 offset_x += 1;
                 offset_y -= 1;
             }
             while offset_y != 0 {
-                self.propagate_from(Coord(offset_x, offset_y), map);
+                self.propagate_from((offset_x, offset_y), map);
                 offset_x += 1;
                 offset_y += 1;
             }
@@ -174,8 +174,8 @@ impl LosAlgorithm for DiamondLos {
 
         for y in -(vision_range as i32)..=vision_range as i32 {
             for x in -(vision_range as i32)..=vision_range as i32 {
-                let offset = Coord(x, y);
-                let map_coord = offset + origin;
+                let offset = (x, y);
+                let map_coord = origin + offset;
                 if Self::is_in_bounds(map_coord, map) {
                     let data = self.get_data(offset);
                     if data.is_visible() {
@@ -195,19 +195,16 @@ struct CellData {
     err: (i32, i32),
     ignore: bool,
     visited: bool,
+    light: bool,
 }
 
 impl CellData {
     fn is_visible(&self) -> bool {
-        self.visited && !self.ignore && (!self.is_obstacle() || self.is_wall())
-    }
-
-    fn is_wall(&self) -> bool {
-        self.err == self.obs
+        self.visited && !self.ignore && (!self.is_obstacle() || self.light)
     }
 
     fn is_obstacle(&self) -> bool {
-        self.err.0 != 0 && self.err.0 <= self.obs.0 || self.err.1 != 0 && self.err.1 <= self.obs.1
+        self.err.0 > 0 && self.err.0 <= self.obs.0 || self.err.1 > 0 && self.err.1 <= self.obs.1
     }
 }
 
@@ -283,8 +280,83 @@ mod tests {
 [.....]
 [...X ]
 [..X  ]
+[...  ]
 [.... ]
+";
+        assert_eq!(map_str, expected_str);
+    }
+
+    #[test]
+    fn test_1() {
+        let mut map = ArrayMapProvider::new((5, 5));
+        map.set_wall(Coord(0, 2), true);
+        map.set_wall(Coord(2, 2), true);
+        map.set_wall(Coord(3, 2), true);
+        map.set_wall(Coord(4, 2), true);
+        map.set_wall(Coord(0, 3), true);
+        map.set_wall(Coord(0, 4), true);
+        map.set_wall(Coord(1, 4), true);
+        map.set_wall(Coord(2, 4), true);
+        map.set_wall(Coord(3, 4), true);
+        map.set_wall(Coord(4, 4), true);
+        let mut alg = DiamondLos::new(5);
+        alg.compute_los(Coord(3, 3), 10, &mut map);
+
+        let map_str = format!("{:?}", map);
+        let expected_str = "\
+[     ]
+[     ]
+[X.XXX]
+[X....]
+[xXXXX]
+";
+        assert_eq!(map_str, expected_str);
+    }
+
+    #[test]
+    fn test_1_reverse() {
+        let mut map = ArrayMapProvider::new((5, 5));
+        map.set_wall(Coord(4, 2), true);
+        map.set_wall(Coord(2, 2), true);
+        map.set_wall(Coord(1, 2), true);
+        map.set_wall(Coord(0, 2), true);
+        map.set_wall(Coord(4, 1), true);
+        map.set_wall(Coord(4, 0), true);
+        map.set_wall(Coord(3, 0), true);
+        map.set_wall(Coord(2, 0), true);
+        map.set_wall(Coord(1, 0), true);
+        map.set_wall(Coord(0, 0), true);
+        let mut alg = DiamondLos::new(5);
+        alg.compute_los(Coord(1, 1), 10, &mut map);
+
+        let map_str = format!("{:?}", map);
+        let expected_str = "\
+[XXXXx]
+[....X]
+[XXX.X]
+[     ]
+[     ]
+";
+        assert_eq!(map_str, expected_str);
+    }
+
+    #[test]
+    fn test_2() {
+        let mut map = ArrayMapProvider::new((5, 5));
+        map.set_wall(Coord(0, 0), true);
+        map.set_wall(Coord(0, 1), true);
+        map.set_wall(Coord(0, 3), true);
+        map.set_wall(Coord(0, 4), true);
+        let mut alg = DiamondLos::new(5);
+        alg.compute_los(Coord(2, 4), 10, &mut map);
+
+        let map_str = format!("{:?}", map);
+        let expected_str = "\
+[X....]
+[X....]
 [.....]
+[X....]
+[X....]
 ";
         assert_eq!(map_str, expected_str);
     }

@@ -38,6 +38,14 @@ impl Add<Coord> for Coord {
     }
 }
 
+impl Add<(i32, i32)> for Coord {
+    type Output = Coord;
+
+    fn add(self, rhs: (i32, i32)) -> Self::Output {
+        Coord(self.0 + rhs.0, self.1 + rhs.1)
+    }
+}
+
 /// 2D map implemented as a vector
 #[derive(Clone, Debug, Default)]
 struct Map<T> {
