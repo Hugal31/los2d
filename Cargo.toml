@@ -1,0 +1,8 @@
+[package]
+name = "los2d"
+description = "Small library for 2D Line-of-sight algorithms"
+version = "0.1.0"
+authors = ["Hugo Laloge <hugo.laloge@gmail.com>"]
+edition = "2018"
+
+[dependencies]
